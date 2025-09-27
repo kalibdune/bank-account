@@ -1,0 +1,36 @@
+[tool.poetry]
+name = "bank-management-system"
+version = "0.1.0"
+description = "Banking account management system with CLI interface"
+authors = ["Developer <dev@example.com>"]
+readme = "README.md"
+packages = [{include = "bank_system"}]
+
+[tool.poetry.dependencies]
+python = "^3.8"
+click = "^8.1.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4.0"
+pytest-cov = "^4.1.0"
+mutmut = "^2.4.3"
+
+[tool.poetry.scripts]
+bank = "bank_system.cli:main"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "--cov=bank_system --cov-report=html --cov-report=term-missing"
+
+[tool.mutmut]
+paths_to_mutate = "bank_system/"
+backup = false
+runner = "python -m pytest"
+tests_dir = "tests/"

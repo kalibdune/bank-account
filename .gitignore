@@ -1,0 +1,7 @@
+htmlcov/
+.venv/
+.ropeproject/
+.pytest_cache/
+.coverage
+.mutmut-cache
+bank.db
