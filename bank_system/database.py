@@ -187,7 +187,7 @@ class DatabaseManager:
                         customer_name=row[2],
                         account_type=AccountType(row[3]),
                         balance=Decimal(str(row[4])),
-                        minimum_balance=Decimal(str(row[6])),
+                        minimum_balance=Decimal(str(row[5])),
                         created_at=datetime.fromisoformat(row[6]),
                         is_active=bool(row[7])
                     ))
