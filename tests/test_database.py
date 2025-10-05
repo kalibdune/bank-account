@@ -43,7 +43,11 @@ class TestDatabaseManager:
             balance=Decimal('1000.00'),
             minimum_balance=Decimal('100.00'),
             created_at=datetime.now(),
-            is_active=True
+            is_active=True,
+            is_frozen=False,
+            daily_withdrawal_limit=None,
+            interest_rate=Decimal('0.00'),
+            last_interest_calculation=None
         )
 
     @pytest.fixture
@@ -368,3 +372,327 @@ class TestDatabaseManager:
         # Cleanup if created
         if os.path.exists("bank.db"):
             os.remove("bank.db")
+
+
+class TestDatabaseManagerNewMethods:
+    """Test new methods in DatabaseManager class."""
+
+    @pytest.fixture
+    def temp_db_path(self):
+        """Create a temporary database file."""
+        fd, path = tempfile.mkstemp(suffix='.db')
+        os.close(fd)
+        yield path
+        if os.path.exists(path):
+            os.unlink(path)
+
+    @pytest.fixture
+    def db_manager(self, temp_db_path):
+        """Create a DatabaseManager instance for testing."""
+        return DatabaseManager(temp_db_path)
+
+    @pytest.fixture
+    def sample_account_with_new_fields(self, db_manager):
+        """Create a sample account with new fields for testing."""
+        account = Account(
+            account_number="TEST-20240101-NEW123",
+            customer_name="Тест Новые Поля",
+            account_type=AccountType.SAVINGS,
+            balance=Decimal('2000.00'),
+            minimum_balance=Decimal('200.00'),
+            created_at=datetime.now(),
+            is_active=True,
+            is_frozen=False,
+            daily_withdrawal_limit=Decimal('5000.00'),
+            interest_rate=Decimal('2.5'),
+            last_interest_calculation=datetime.now()
+        )
+        account_id = db_manager.create_account(account)
+        account.account_id = account_id
+        return account
+
+    def test_create_account_with_new_fields(self, db_manager):
+        """Test account creation with new fields."""
+        test_time = datetime.now()
+        account = Account(
+            account_number="TEST-NEW-FIELDS",
+            customer_name="Test New Fields",
+            account_type=AccountType.SAVINGS,
+            balance=Decimal('1500.00'),
+            minimum_balance=Decimal('100.00'),
+            is_frozen=True,
+            daily_withdrawal_limit=Decimal('3000.00'),
+            interest_rate=Decimal('1.75'),
+            last_interest_calculation=test_time
+        )
+
+        account_id = db_manager.create_account(account)
+        assert account_id is not None
+
+        # Retrieve and verify
+        retrieved_account = db_manager.get_account(account_id)
+        assert retrieved_account.is_frozen is True
+        assert retrieved_account.daily_withdrawal_limit == Decimal('3000.00')
+        assert retrieved_account.interest_rate == Decimal('1.75')
+        assert retrieved_account.last_interest_calculation is not None
+
+    def test_freeze_account_success(self, db_manager, sample_account_with_new_fields):
+        """Test successful account freezing."""
+        result = db_manager.freeze_account(sample_account_with_new_fields.account_id, True)
+        assert result is True
+
+        # Verify account is frozen
+        account = db_manager.get_account(sample_account_with_new_fields.account_id)
+        assert account.is_frozen is True
+
+    def test_unfreeze_account_success(self, db_manager, sample_account_with_new_fields):
+        """Test successful account unfreezing."""
+        # First freeze the account
+        db_manager.freeze_account(sample_account_with_new_fields.account_id, True)
+        
+        # Then unfreeze it
+        result = db_manager.freeze_account(sample_account_with_new_fields.account_id, False)
+        assert result is True
+
+        # Verify account is unfrozen
+        account = db_manager.get_account(sample_account_with_new_fields.account_id)
+        assert account.is_frozen is False
+
+    def test_freeze_account_not_found(self, db_manager):
+        """Test freezing non-existent account."""
+        result = db_manager.freeze_account(999, True)
+        assert result is False
+
+    def test_set_daily_withdrawal_limit_success(self, db_manager, sample_account_with_new_fields):
+        """Test setting daily withdrawal limit."""
+        new_limit = Decimal('10000.00')
+        result = db_manager.set_daily_withdrawal_limit(sample_account_with_new_fields.account_id, new_limit)
+        assert result is True
+
+        # Verify limit was set
+        account = db_manager.get_account(sample_account_with_new_fields.account_id)
+        assert account.daily_withdrawal_limit == new_limit
+
+    def test_set_daily_withdrawal_limit_none(self, db_manager, sample_account_with_new_fields):
+        """Test removing daily withdrawal limit."""
+        result = db_manager.set_daily_withdrawal_limit(sample_account_with_new_fields.account_id, None)
+        assert result is True
+
+        # Verify limit was removed
+        account = db_manager.get_account(sample_account_with_new_fields.account_id)
+        assert account.daily_withdrawal_limit is None
+
+    def test_set_daily_withdrawal_limit_not_found(self, db_manager):
+        """Test setting limit on non-existent account."""
+        result = db_manager.set_daily_withdrawal_limit(999, Decimal('5000.00'))
+        assert result is False
+
+    def test_update_interest_calculation_success(self, db_manager, sample_account_with_new_fields):
+        """Test updating interest calculation timestamp."""
+        new_time = datetime.now()
+        result = db_manager.update_interest_calculation(sample_account_with_new_fields.account_id, new_time)
+        assert result is True
+
+        # Verify timestamp was updated
+        account = db_manager.get_account(sample_account_with_new_fields.account_id)
+        # Compare timestamps with some tolerance for microseconds
+        assert abs((account.last_interest_calculation - new_time).total_seconds()) < 1
+
+    def test_update_interest_calculation_not_found(self, db_manager):
+        """Test updating interest calculation on non-existent account."""
+        result = db_manager.update_interest_calculation(999, datetime.now())
+        assert result is False
+
+    def test_get_monthly_transactions_empty(self, db_manager, sample_account_with_new_fields):
+        """Test getting monthly transactions when none exist."""
+        transactions = db_manager.get_monthly_transactions(sample_account_with_new_fields.account_id, 2024, 10)
+        assert transactions == []
+
+    def test_get_monthly_transactions_with_data(self, db_manager, sample_account_with_new_fields):
+        """Test getting monthly transactions with data."""
+        # Create transactions in different months
+        tx1 = Transaction(
+            account_id=sample_account_with_new_fields.account_id,
+            transaction_type=TransactionType.DEPOSIT,
+            amount=Decimal('100.00'),
+            description="October deposit",
+            timestamp=datetime(2024, 10, 15, 10, 0, 0),
+            balance_after=Decimal('2100.00')
+        )
+        tx2 = Transaction(
+            account_id=sample_account_with_new_fields.account_id,
+            transaction_type=TransactionType.WITHDRAWAL,
+            amount=Decimal('50.00'),
+            description="October withdrawal",
+            timestamp=datetime(2024, 10, 20, 14, 0, 0),
+            balance_after=Decimal('2050.00')
+        )
+        tx3 = Transaction(
+            account_id=sample_account_with_new_fields.account_id,
+            transaction_type=TransactionType.DEPOSIT,
+            amount=Decimal('200.00'),
+            description="November deposit",
+            timestamp=datetime(2024, 11, 5, 9, 0, 0),
+            balance_after=Decimal('2250.00')
+        )
+
+        db_manager.create_transaction(tx1)
+        db_manager.create_transaction(tx2)
+        db_manager.create_transaction(tx3)
+
+        # Get October transactions
+        october_transactions = db_manager.get_monthly_transactions(sample_account_with_new_fields.account_id, 2024, 10)
+        assert len(october_transactions) == 2
+        
+        # Should be ordered by timestamp ASC
+        assert october_transactions[0].description == "October deposit"
+        assert october_transactions[1].description == "October withdrawal"
+
+        # Get November transactions
+        november_transactions = db_manager.get_monthly_transactions(sample_account_with_new_fields.account_id, 2024, 11)
+        assert len(november_transactions) == 1
+        assert november_transactions[0].description == "November deposit"
+
+    def test_get_daily_withdrawals_empty(self, db_manager, sample_account_with_new_fields):
+        """Test getting daily withdrawals when none exist."""
+        test_date = datetime(2024, 10, 15)
+        total = db_manager.get_daily_withdrawals(sample_account_with_new_fields.account_id, test_date)
+        assert total == Decimal('0.00')
+
+    def test_get_daily_withdrawals_with_data(self, db_manager, sample_account_with_new_fields):
+        """Test getting daily withdrawals with data."""
+        test_date = datetime(2024, 10, 15)
+        
+        # Create transactions on the test date
+        tx1 = Transaction(
+            account_id=sample_account_with_new_fields.account_id,
+            transaction_type=TransactionType.WITHDRAWAL,
+            amount=Decimal('100.00'),
+            description="First withdrawal",
+            timestamp=datetime(2024, 10, 15, 10, 0, 0),
+            balance_after=Decimal('1900.00')
+        )
+        tx2 = Transaction(
+            account_id=sample_account_with_new_fields.account_id,
+            transaction_type=TransactionType.TRANSFER_OUT,
+            amount=Decimal('200.00'),
+            description="Transfer out",
+            timestamp=datetime(2024, 10, 15, 14, 0, 0),
+            balance_after=Decimal('1700.00')
+        )
+        tx3 = Transaction(
+            account_id=sample_account_with_new_fields.account_id,
+            transaction_type=TransactionType.BULK_TRANSFER_OUT,
+            amount=Decimal('150.00'),
+            description="Bulk transfer out",
+            timestamp=datetime(2024, 10, 15, 16, 0, 0),
+            balance_after=Decimal('1550.00')
+        )
+        # Transaction on different date (should not be counted)
+        tx4 = Transaction(
+            account_id=sample_account_with_new_fields.account_id,
+            transaction_type=TransactionType.WITHDRAWAL,
+            amount=Decimal('50.00'),
+            description="Different day withdrawal",
+            timestamp=datetime(2024, 10, 16, 10, 0, 0),
+            balance_after=Decimal('1500.00')
+        )
+        # Deposit on same date (should not be counted)
+        tx5 = Transaction(
+            account_id=sample_account_with_new_fields.account_id,
+            transaction_type=TransactionType.DEPOSIT,
+            amount=Decimal('300.00'),
+            description="Deposit same day",
+            timestamp=datetime(2024, 10, 15, 12, 0, 0),
+            balance_after=Decimal('1800.00')
+        )
+
+        db_manager.create_transaction(tx1)
+        db_manager.create_transaction(tx2)
+        db_manager.create_transaction(tx3)
+        db_manager.create_transaction(tx4)
+        db_manager.create_transaction(tx5)
+
+        # Get daily withdrawals for test date
+        total = db_manager.get_daily_withdrawals(sample_account_with_new_fields.account_id, test_date)
+        # Should sum withdrawal + transfer_out + bulk_transfer_out = 100 + 200 + 150 = 450
+        assert total == Decimal('450.00')
+
+    def test_get_account_with_all_new_fields(self, db_manager):
+        """Test retrieving account with all new fields populated."""
+        test_time = datetime.now()
+        account = Account(
+            account_number="TEST-ALL-FIELDS",
+            customer_name="Test All Fields",
+            account_type=AccountType.BUSINESS,
+            balance=Decimal('5000.00'),
+            minimum_balance=Decimal('500.00'),
+            is_frozen=True,
+            daily_withdrawal_limit=Decimal('2000.00'),
+            interest_rate=Decimal('3.25'),
+            last_interest_calculation=test_time
+        )
+
+        account_id = db_manager.create_account(account)
+        retrieved_account = db_manager.get_account(account_id)
+
+        assert retrieved_account is not None
+        assert retrieved_account.is_frozen is True
+        assert retrieved_account.daily_withdrawal_limit == Decimal('2000.00')
+        assert retrieved_account.interest_rate == Decimal('3.25')
+        assert retrieved_account.last_interest_calculation is not None
+
+    def test_get_account_by_number_with_new_fields(self, db_manager):
+        """Test retrieving account by number with new fields."""
+        account = Account(
+            account_number="TEST-BY-NUMBER-NEW",
+            customer_name="Test By Number",
+            account_type=AccountType.CHECKING,
+            balance=Decimal('1000.00'),
+            is_frozen=True,
+            daily_withdrawal_limit=Decimal('1500.00'),
+            interest_rate=Decimal('1.5')
+        )
+
+        db_manager.create_account(account)
+        retrieved_account = db_manager.get_account_by_number("TEST-BY-NUMBER-NEW")
+
+        assert retrieved_account is not None
+        assert retrieved_account.is_frozen is True
+        assert retrieved_account.daily_withdrawal_limit == Decimal('1500.00')
+        assert retrieved_account.interest_rate == Decimal('1.5')
+
+    def test_get_all_accounts_with_new_fields(self, db_manager):
+        """Test getting all accounts with new fields."""
+        # Create accounts with different new field values
+        account1 = Account(
+            account_number="TEST-ALL-1",
+            customer_name="Account 1",
+            account_type=AccountType.CHECKING,
+            balance=Decimal('1000.00'),
+            is_frozen=False,
+            daily_withdrawal_limit=Decimal('2000.00')
+        )
+        account2 = Account(
+            account_number="TEST-ALL-2",
+            customer_name="Account 2",
+            account_type=AccountType.SAVINGS,
+            balance=Decimal('3000.00'),
+            is_frozen=True,
+            interest_rate=Decimal('2.0')
+        )
+
+        db_manager.create_account(account1)
+        db_manager.create_account(account2)
+
+        accounts = db_manager.get_all_accounts()
+        assert len(accounts) == 2
+
+        # Find accounts by name
+        acc1 = next(acc for acc in accounts if acc.customer_name == "Account 1")
+        acc2 = next(acc for acc in accounts if acc.customer_name == "Account 2")
+
+        assert acc1.is_frozen is False
+        assert acc1.daily_withdrawal_limit == Decimal('2000.00')
+        assert acc2.is_frozen is True
+        assert acc2.interest_rate == Decimal('2.0')

@@ -31,6 +31,10 @@ class TestTransactionType:
         assert TransactionType.WITHDRAWAL.value == "withdrawal"
         assert TransactionType.TRANSFER_IN.value == "transfer_in"
         assert TransactionType.TRANSFER_OUT.value == "transfer_out"
+        assert TransactionType.INTEREST.value == "interest"
+        assert TransactionType.FEE.value == "fee"
+        assert TransactionType.BULK_TRANSFER_IN.value == "bulk_transfer_in"
+        assert TransactionType.BULK_TRANSFER_OUT.value == "bulk_transfer_out"
 
 
 class TestAccount:
@@ -47,6 +51,10 @@ class TestAccount:
         assert account.balance == Decimal('0.00')
         assert account.is_active is True
         assert account.minimum_balance == Decimal('0.00')
+        assert account.is_frozen is False
+        assert account.daily_withdrawal_limit is None
+        assert account.interest_rate == Decimal('0.00')
+        assert account.last_interest_calculation is None
         assert isinstance(account.created_at, datetime)
 
     def test_account_custom_initialization(self):
@@ -60,7 +68,11 @@ class TestAccount:
             balance=Decimal('5000.00'),
             created_at=test_time,
             is_active=False,
-            minimum_balance=Decimal('1000.00')
+            minimum_balance=Decimal('1000.00'),
+            is_frozen=True,
+            daily_withdrawal_limit=Decimal('5000.00'),
+            interest_rate=Decimal('2.5'),
+            last_interest_calculation=test_time
         )
 
         assert account.account_id == 123
@@ -71,6 +83,10 @@ class TestAccount:
         assert account.created_at == test_time
         assert account.is_active is False
         assert account.minimum_balance == Decimal('1000.00')
+        assert account.is_frozen is True
+        assert account.daily_withdrawal_limit == Decimal('5000.00')
+        assert account.interest_rate == Decimal('2.5')
+        assert account.last_interest_calculation == test_time
 
     def test_account_balance_decimal_conversion(self):
         """Test automatic conversion of balance to Decimal."""
@@ -311,3 +327,156 @@ class TestTransaction:
         for txn_type in TransactionType:
             transaction = Transaction(transaction_type=txn_type)
             assert transaction.transaction_type == txn_type
+
+
+class TestAccountNewFields:
+    """Test new fields and methods in Account model."""
+
+    def test_account_new_fields_default_values(self):
+        """Test new fields have correct default values."""
+        account = Account()
+        
+        assert account.is_frozen is False
+        assert account.daily_withdrawal_limit is None
+        assert account.interest_rate == Decimal('0.00')
+        assert account.last_interest_calculation is None
+
+    def test_account_new_fields_custom_values(self):
+        """Test new fields with custom values."""
+        test_time = datetime.now()
+        account = Account(
+            is_frozen=True,
+            daily_withdrawal_limit=Decimal('10000.00'),
+            interest_rate=Decimal('3.5'),
+            last_interest_calculation=test_time
+        )
+        
+        assert account.is_frozen is True
+        assert account.daily_withdrawal_limit == Decimal('10000.00')
+        assert account.interest_rate == Decimal('3.5')
+        assert account.last_interest_calculation == test_time
+
+    def test_account_interest_rate_decimal_conversion(self):
+        """Test automatic conversion of interest_rate to Decimal."""
+        # Test with string
+        account = Account(interest_rate="2.75")
+        assert account.interest_rate == Decimal('2.75')
+        assert isinstance(account.interest_rate, Decimal)
+
+        # Test with float
+        account = Account(interest_rate=4.25)
+        assert account.interest_rate == Decimal('4.25')
+        assert isinstance(account.interest_rate, Decimal)
+
+        # Test with int
+        account = Account(interest_rate=5)
+        assert account.interest_rate == Decimal('5.00')
+        assert isinstance(account.interest_rate, Decimal)
+
+    def test_account_daily_withdrawal_limit_decimal_conversion(self):
+        """Test automatic conversion of daily_withdrawal_limit to Decimal."""
+        # Test with string
+        account = Account(daily_withdrawal_limit="5000.00")
+        assert account.daily_withdrawal_limit == Decimal('5000.00')
+        assert isinstance(account.daily_withdrawal_limit, Decimal)
+
+        # Test with float
+        account = Account(daily_withdrawal_limit=7500.50)
+        assert account.daily_withdrawal_limit == Decimal('7500.50')
+        assert isinstance(account.daily_withdrawal_limit, Decimal)
+
+        # Test with int
+        account = Account(daily_withdrawal_limit=10000)
+        assert account.daily_withdrawal_limit == Decimal('10000.00')
+        assert isinstance(account.daily_withdrawal_limit, Decimal)
+
+    def test_can_withdraw_frozen_account(self):
+        """Test withdrawal check on frozen account."""
+        account = Account(
+            balance=Decimal('1000.00'),
+            is_frozen=True
+        )
+        
+        # Should not be able to withdraw from frozen account
+        assert account.can_withdraw(Decimal('100.00')) is False
+        assert account.can_withdraw(Decimal('500.00')) is False
+
+    def test_can_withdraw_unfrozen_account(self):
+        """Test withdrawal check on unfrozen account."""
+        account = Account(
+            balance=Decimal('1000.00'),
+            is_frozen=False
+        )
+        
+        # Should be able to withdraw from unfrozen account
+        assert account.can_withdraw(Decimal('100.00')) is True
+        assert account.can_withdraw(Decimal('500.00')) is True
+
+    def test_is_within_daily_limit_no_limit(self):
+        """Test daily limit check when no limit is set."""
+        account = Account(daily_withdrawal_limit=None)
+        
+        # Should always return True when no limit is set
+        assert account.is_within_daily_limit(Decimal('1000.00'), Decimal('0.00')) is True
+        assert account.is_within_daily_limit(Decimal('5000.00'), Decimal('2000.00')) is True
+
+    def test_is_within_daily_limit_with_limit(self):
+        """Test daily limit check with limit set."""
+        account = Account(daily_withdrawal_limit=Decimal('5000.00'))
+        
+        # Test within limit
+        assert account.is_within_daily_limit(Decimal('1000.00'), Decimal('2000.00')) is True
+        assert account.is_within_daily_limit(Decimal('2000.00'), Decimal('3000.00')) is True
+        
+        # Test at limit
+        assert account.is_within_daily_limit(Decimal('1000.00'), Decimal('4000.00')) is True
+        
+        # Test over limit
+        assert account.is_within_daily_limit(Decimal('2000.00'), Decimal('4000.00')) is False
+        assert account.is_within_daily_limit(Decimal('6000.00'), Decimal('0.00')) is False
+
+    def test_is_within_daily_limit_decimal_conversion(self):
+        """Test daily limit check with automatic Decimal conversion."""
+        account = Account(daily_withdrawal_limit=Decimal('5000.00'))
+        
+        # Test with string inputs
+        assert account.is_within_daily_limit("1000.00", "2000.00") is True
+        
+        # Test with float inputs
+        assert account.is_within_daily_limit(1500.50, 2500.25) is True
+        
+        # Test with int inputs
+        assert account.is_within_daily_limit(1000, 3000) is True
+
+
+class TestTransactionNewTypes:
+    """Test new transaction types."""
+
+    def test_new_transaction_types_creation(self):
+        """Test creation of transactions with new types."""
+        # Test INTEREST transaction
+        interest_tx = Transaction(transaction_type=TransactionType.INTEREST)
+        assert interest_tx.transaction_type == TransactionType.INTEREST
+        
+        # Test FEE transaction
+        fee_tx = Transaction(transaction_type=TransactionType.FEE)
+        assert fee_tx.transaction_type == TransactionType.FEE
+        
+        # Test BULK_TRANSFER_IN transaction
+        bulk_in_tx = Transaction(transaction_type=TransactionType.BULK_TRANSFER_IN)
+        assert bulk_in_tx.transaction_type == TransactionType.BULK_TRANSFER_IN
+        
+        # Test BULK_TRANSFER_OUT transaction
+        bulk_out_tx = Transaction(transaction_type=TransactionType.BULK_TRANSFER_OUT)
+        assert bulk_out_tx.transaction_type == TransactionType.BULK_TRANSFER_OUT
+
+    def test_all_transaction_types_count(self):
+        """Test that we have all expected transaction types."""
+        expected_types = {
+            'deposit', 'withdrawal', 'transfer_in', 'transfer_out',
+            'interest', 'fee', 'bulk_transfer_in', 'bulk_transfer_out'
+        }
+        
+        actual_types = {txn_type.value for txn_type in TransactionType}
+        assert actual_types == expected_types
+        assert len(TransactionType) == 8
