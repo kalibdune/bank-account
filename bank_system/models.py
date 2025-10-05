@@ -24,6 +24,10 @@ class TransactionType(Enum):
     WITHDRAWAL = "withdrawal"
     TRANSFER_IN = "transfer_in"
     TRANSFER_OUT = "transfer_out"
+    INTEREST = "interest"
+    FEE = "fee"
+    BULK_TRANSFER_OUT = "bulk_transfer_out"
+    BULK_TRANSFER_IN = "bulk_transfer_in"
 
 
 @dataclass
@@ -38,6 +42,10 @@ class Account:
     created_at: Optional[datetime] = None
     is_active: bool = True
     minimum_balance: Decimal = Decimal('0.00')
+    is_frozen: bool = False
+    daily_withdrawal_limit: Optional[Decimal] = None
+    interest_rate: Decimal = Decimal('0.00')  # Annual interest rate as percentage
+    last_interest_calculation: Optional[datetime] = None
 
     def __post_init__(self):
         """Initialize account after creation."""
@@ -50,12 +58,34 @@ class Account:
 
         if not isinstance(self.minimum_balance, Decimal):
             self.minimum_balance = Decimal(str(self.minimum_balance))
+            
+        if not isinstance(self.interest_rate, Decimal):
+            self.interest_rate = Decimal(str(self.interest_rate))
+            
+        if self.daily_withdrawal_limit is not None and not isinstance(self.daily_withdrawal_limit, Decimal):
+            self.daily_withdrawal_limit = Decimal(str(self.daily_withdrawal_limit))
 
     def can_withdraw(self, amount: Decimal) -> bool:
         """Check if withdrawal is possible without going below minimum balance."""
         if not isinstance(amount, Decimal):
             amount = Decimal(str(amount))
+        
+        if self.is_frozen:
+            return False
+            
         return self.balance - amount >= self.minimum_balance
+    
+    def is_within_daily_limit(self, amount: Decimal, daily_withdrawals: Decimal) -> bool:
+        """Check if withdrawal is within daily limit."""
+        if not isinstance(amount, Decimal):
+            amount = Decimal(str(amount))
+        if not isinstance(daily_withdrawals, Decimal):
+            daily_withdrawals = Decimal(str(daily_withdrawals))
+            
+        if self.daily_withdrawal_limit is None:
+            return True
+            
+        return daily_withdrawals + amount <= self.daily_withdrawal_limit
 
     def withdraw(self, amount: Decimal) -> bool:
         """Withdraw money from account."""

@@ -5,3 +5,4 @@ htmlcov/
 .coverage
 .mutmut-cache
 bank.db
+.DS_Store
