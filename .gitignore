@@ -2,6 +2,7 @@ htmlcov/
 .venv/
 .ropeproject/
 .pytest_cache/
+__pycache__/*
 .coverage
 .mutmut-cache
 bank.db

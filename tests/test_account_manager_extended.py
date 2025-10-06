@@ -204,21 +204,21 @@ class TestAccountManagerExtended:
             account_manager.withdraw(sample_account.account_id, Decimal('100.00'))
 
     # Interest Calculation Tests
-    @patch('bank_system.account_manager.datetime')
-    def test_calculate_interest_success(self, mock_datetime, account_manager):
+    def test_calculate_interest_success(self, account_manager):
         """Test successful interest calculation."""
-        # Create account with interest rate
+        # Create account with interest rate first (without mocking)
         account = account_manager.create_account(
             customer_name="Interest Test",
             account_type=AccountType.SAVINGS,
             initial_deposit=Decimal('10000.00')
         )
         
-        # Mock current time to be 30 days after account creation
+        # Ensure account was created successfully
+        assert account is not None, "Account creation failed"
+        
+        # Store creation time before patching
         creation_time = datetime.now()
-        current_time = creation_time + timedelta(days=30)
-        mock_datetime.now.return_value = current_time
-
+        
         # Manually set interest rate and last calculation using database connection
         import sqlite3
         with sqlite3.connect(account_manager.db.db_path) as conn:
@@ -230,8 +230,14 @@ class TestAccountManagerExtended:
             """, (2.5, creation_time, account.account_id))
             conn.commit()
 
-        # Calculate interest
-        interest = account_manager.calculate_interest(account.account_id)
+        # Now patch datetime for the interest calculation
+        with patch('bank_system.account_manager.datetime') as mock_datetime:
+            # Mock current time to be 30 days after account creation
+            current_time = creation_time + timedelta(days=30)
+            mock_datetime.now.return_value = current_time
+            
+            # Calculate interest
+            interest = account_manager.calculate_interest(account.account_id)
         
         # Verify interest was calculated (2.5% annual rate for 30 days)
         expected_interest = Decimal('10000.00') * Decimal('2.5') * Decimal('30') / Decimal('365') / Decimal('100')
@@ -435,9 +441,10 @@ class TestAccountManagerExtended:
         assert 'largest_withdrawal' in stats
 
         # Check deposit statistics
+        # Note: sample_account has initial_deposit of 2000.00, so largest_deposit should be 2000.00
         assert stats['deposits']['count'] >= 2
         assert stats['deposits']['total'] >= Decimal('1200.00')
-        assert stats['largest_deposit'] == Decimal('1000.00')
+        assert stats['largest_deposit'] == Decimal('2000.00')  # Initial deposit from fixture
 
         # Check withdrawal statistics
         assert stats['withdrawals']['count'] >= 1

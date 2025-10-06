@@ -192,7 +192,7 @@ class TestCLIExtended:
         ])
         
         assert result.exit_code == 0
-        assert "Error" in result.output
+        assert "❌" in result.output
         assert "Month must be between 1 and 12" in result.output
 
     def test_monthly_statement_command_account_not_found(self, runner, temp_db_path):
@@ -206,7 +206,7 @@ class TestCLIExtended:
         ])
         
         assert result.exit_code == 0
-        assert "Error" in result.output
+        assert "❌" in result.output
         assert "Account not found" in result.output
 
     def test_calculate_interest_command_success(self, runner, sample_account_id):
@@ -304,7 +304,7 @@ class TestCLIExtended:
         ])
         
         assert result.exit_code == 0
-        assert "Error" in result.output
+        assert "❌" in result.output
         assert "Invalid transfer format" in result.output
 
     def test_bulk_transfer_command_insufficient_funds(self, runner, sample_account_id):
@@ -378,7 +378,7 @@ class TestCLIExtended:
         ])
         
         assert result.exit_code == 0
-        assert "Error" in result.output
+        assert "❌" in result.output
         assert "Account not found" in result.output
 
     def test_show_account_command_with_new_fields(self, runner, sample_account_id):
